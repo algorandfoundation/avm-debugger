@@ -1,25 +1,23 @@
-import * as algosdk from 'algosdk';
+import type { AvmValue, AvmKeyValue, ApplicationInitialStates } from '@algorandfoundation/algokit-utils/algod-client';
+import { hexToBytes } from '@algorandfoundation/algokit-utils/common';
 import { ByteArrayMap } from './utils';
 
 export class AppState {
-  globalState: ByteArrayMap<algosdk.modelsv2.AvmValue>;
-  localState: Map<string, ByteArrayMap<algosdk.modelsv2.AvmValue>>;
-  boxState: ByteArrayMap<algosdk.modelsv2.AvmValue>;
+  globalState: ByteArrayMap<AvmValue>;
+  localState: Map<string, ByteArrayMap<AvmValue>>;
+  boxState: ByteArrayMap<AvmValue>;
 
   constructor() {
-    this.globalState = new ByteArrayMap<algosdk.modelsv2.AvmValue>();
-    this.localState = new Map<
-      string,
-      ByteArrayMap<algosdk.modelsv2.AvmValue>
-    >();
-    this.boxState = new ByteArrayMap<algosdk.modelsv2.AvmValue>();
+    this.globalState = new ByteArrayMap<AvmValue>();
+    this.localState = new Map<string, ByteArrayMap<AvmValue>>();
+    this.boxState = new ByteArrayMap<AvmValue>();
   }
 
-  public globalStateArray(): algosdk.modelsv2.AvmKeyValue[] {
+  public globalStateArray(): AvmKeyValue[] {
     return createAvmKvArray(this.globalState);
   }
 
-  public localStateArray(account: string): algosdk.modelsv2.AvmKeyValue[] {
+  public localStateArray(account: string): AvmKeyValue[] {
     const map = this.localState.get(account);
     if (!map) {
       return [];
@@ -27,7 +25,7 @@ export class AppState {
     return createAvmKvArray(map);
   }
 
-  public boxStateArray(): algosdk.modelsv2.AvmKeyValue[] {
+  public boxStateArray(): AvmKeyValue[] {
     return createAvmKvArray(this.boxState);
   }
 
@@ -45,7 +43,7 @@ export class AppState {
   }
 
   public static fromAppInitialState(
-    initialState: algosdk.modelsv2.ApplicationInitialStates,
+    initialState: ApplicationInitialStates,
   ): AppState {
     const state = new AppState();
 
@@ -56,7 +54,7 @@ export class AppState {
     }
 
     for (const appLocal of initialState.appLocals || []) {
-      const map = new ByteArrayMap<algosdk.modelsv2.AvmValue>();
+      const map = new ByteArrayMap<AvmValue>();
       for (const { key, value } of appLocal.kvs) {
         map.set(key, value);
       }
@@ -73,16 +71,11 @@ export class AppState {
   }
 }
 
-function createAvmKvArray(
-  map: ByteArrayMap<algosdk.modelsv2.AvmValue>,
-): algosdk.modelsv2.AvmKeyValue[] {
+function createAvmKvArray(map: ByteArrayMap<AvmValue>): AvmKeyValue[] {
   return Array.from(map.entriesHex())
     .sort()
-    .map(
-      ([key, value]) =>
-        new algosdk.modelsv2.AvmKeyValue({
-          key: algosdk.hexToBytes(key),
-          value,
-        }),
-    );
+    .map(([key, value]) => ({
+      key: hexToBytes(key),
+      value,
+    }));
 }
