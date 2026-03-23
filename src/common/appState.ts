@@ -1,4 +1,8 @@
-import type { AvmValue, AvmKeyValue, ApplicationInitialStates } from '@algorandfoundation/algokit-utils/algod-client';
+import type {
+  AvmValue,
+  AvmKeyValue,
+  ApplicationInitialStates,
+} from '@algorandfoundation/algokit-utils/algod-client';
 import { hexToBytes } from '@algorandfoundation/algokit-utils/common';
 import { ByteArrayMap } from './utils';
 

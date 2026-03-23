@@ -5,8 +5,12 @@ import type {
   SimulationTransactionExecTrace,
   PendingTransactionResponse,
 } from '@algorandfoundation/algokit-utils/algod-client';
-import { encodeAddress, stringifyJson, parseJson } from '@algorandfoundation/algokit-utils/common';
-import { hash } from '@algorandfoundation/algokit-utils/crypto';
+import {
+  encodeAddress,
+  stringifyJson,
+  parseJson,
+} from '@algorandfoundation/algokit-utils/common';
+import { sha512_256 } from '@noble/hashes/sha2.js';
 import { AppState } from './appState';
 import {
   ByteArrayMap,
@@ -23,7 +27,7 @@ function computeLogicSigAddress(programBytes: Uint8Array): string {
   const toHash = new Uint8Array(prefix.length + programBytes.length);
   toHash.set(prefix);
   toHash.set(programBytes, prefix.length);
-  const hashed = hash(toHash);
+  const hashed = sha512_256(toHash);
   return encodeAddress(hashed);
 }
 
@@ -111,9 +115,7 @@ export class TraceReplayEngine {
     this.setStartingStack(simulateResponse);
   }
 
-  private setStartingStack(
-    simulateResponse: SimulateResponse,
-  ) {
+  private setStartingStack(simulateResponse: SimulateResponse) {
     this.stack = [new TopLevelTransactionGroupsFrame(this, simulateResponse)];
     if (simulateResponse.txnGroups.length === 1) {
       this.forward();
@@ -159,8 +161,7 @@ export class TraceReplayEngine {
           programHash,
         );
 
-        const appID =
-          txnInfo.appId || txnInfo.txn.txn.appCall?.appId;
+        const appID = txnInfo.appId || txnInfo.txn.txn.appCall?.appId;
         if (typeof appID === 'undefined' || appID === BigInt(0)) {
           throw new Error(`No appID for txn at path ${path}`);
         }
@@ -447,7 +448,9 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
     private engine: TraceReplayEngine,
     private txnPath: number[],
     private readonly txnInfos: PendingTransactionResponse[],
-    private readonly txnTraces: Array<SimulationTransactionExecTrace | undefined>,
+    private readonly txnTraces: Array<
+      SimulationTransactionExecTrace | undefined
+    >,
     private readonly failureInfo: TransactionFailureInfo | undefined,
   ) {
     const firstTrace = txnTraces[0];

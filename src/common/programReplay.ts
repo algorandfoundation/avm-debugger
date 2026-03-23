@@ -1,4 +1,7 @@
-import type { AvmValue, SimulationOpcodeTraceUnit } from '@algorandfoundation/algokit-utils/algod-client';
+import type {
+  AvmValue,
+  SimulationOpcodeTraceUnit,
+} from '@algorandfoundation/algokit-utils/algod-client';
 import { ProgramSourceMap } from '@algorandfoundation/algokit-utils/common';
 import { FrameSource, CallStackFrame } from './traceReplayEngine';
 import {

@@ -69,7 +69,8 @@
     "pre-commit": "npm run lint && npm run typecheck && npm run format"
   },
   "dependencies": {
-    "@algorandfoundation/algokit-utils": "file:../algokit-utils-ts/algorandfoundation-algokit-utils-0.1.0.tgz",
+    "@algorandfoundation/algokit-utils": "10.0.0-alpha.45",
+    "@noble/hashes": "^2.0.1",
     "@vscode/debugadapter": "^1.64.0",
     "await-notify": "^1.0.1"
   },

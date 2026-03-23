@@ -88,12 +88,16 @@ function parseSimulateResponseFields(obj: any): any {
   );
 }
 
-function tryParseSimulateResponse(rawSimulateTrace: Uint8Array): SimulateResponse {
+function tryParseSimulateResponse(
+  rawSimulateTrace: Uint8Array,
+): SimulateResponse {
   const parsed = parseJson(bytesToString(rawSimulateTrace));
   const processed = parseSimulateResponseFields(parsed);
 
   if (processed.version !== 2) {
-    throw new Error(`Unsupported simulate response version: ${processed.version}`);
+    throw new Error(
+      `Unsupported simulate response version: ${processed.version}`,
+    );
   }
 
   return decodeSimulateResponseFromJson(processed);
@@ -363,7 +367,9 @@ export class AvmDebuggingAssets {
     try {
       try {
         const parsed = parseJson(bytesToString(rawSimulateTrace));
-        simulateResponse = decodeSimulateResponseFromJson(parsed as Record<string, unknown>);
+        simulateResponse = decodeSimulateResponseFromJson(
+          parsed as Record<string, unknown>,
+        );
       } catch {
         simulateResponse = tryParseSimulateResponse(rawSimulateTrace);
       }

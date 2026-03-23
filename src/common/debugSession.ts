@@ -16,8 +16,17 @@ import {
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { AvmRuntime, IRuntimeBreakpoint } from './runtime';
 import { Subject } from 'await-notify';
-import type { AvmValue, AvmKeyValue } from '@algorandfoundation/algokit-utils/algod-client';
-import { bytesToHex, bytesToBase64, encodeAddress, hexToBytes, decodeAddress } from '@algorandfoundation/algokit-utils/common';
+import type {
+  AvmValue,
+  AvmKeyValue,
+} from '@algorandfoundation/algokit-utils/algod-client';
+import {
+  bytesToHex,
+  bytesToBase64,
+  encodeAddress,
+  hexToBytes,
+  decodeAddress,
+} from '@algorandfoundation/algokit-utils/common';
 import { FileAccessor } from './fileAccessor';
 import {
   AvmDebuggingAssets,
@@ -544,10 +553,7 @@ export class AvmDebugSession extends DebugSession {
         } else if (v.specificState === 'scratch') {
           const expandedScratch: AvmValue[] = [];
           for (let i = 0; i < 256; i++) {
-            expandedScratch.push(
-              programState.scratch.get(i) ||
-                ({  type: 2 }),
-            );
+            expandedScratch.push(programState.scratch.get(i) || { type: 2 });
           }
           if (args.filter !== 'named') {
             variables = expandedScratch.map((value, index) =>
@@ -659,9 +665,7 @@ export class AvmDebugSession extends DebugSession {
             if (v.scope.specificState === 'stack') {
               toExpand = state.stack[v.key as number];
             } else if (v.scope.specificState === 'scratch') {
-              toExpand =
-                state.scratch.get(v.key as number) ||
-                ({  type: 2 });
+              toExpand = state.scratch.get(v.key as number) || { type: 2 };
             }
           } else if (v.scope instanceof PuyaScope) {
             const variable = state.variables.find(([name]) => name === v.key);
@@ -684,10 +688,10 @@ export class AvmDebugSession extends DebugSession {
           if (v.scope.scope === 'global') {
             const value = state.globalState.getHex(keyHex);
             if (value) {
-              toExpand = ({ 
+              toExpand = {
                 key: hexToBytes(keyHex),
                 value,
-              });
+              };
             } else {
               throw new Error(`key "${v.key}" not found in global state`);
             }
@@ -707,18 +711,18 @@ export class AvmDebugSession extends DebugSession {
                   `key "${v.key}" not found in local state for account "${v.scope.account}"`,
                 );
               }
-              toExpand = ({ 
+              toExpand = {
                 key: hexToBytes(keyHex),
                 value,
-              });
+              };
             }
           } else if (v.scope.scope === 'box') {
             const value = state.boxState.getHex(keyHex);
             if (value) {
-              toExpand = ({ 
+              toExpand = {
                 key: hexToBytes(keyHex),
                 value,
-              });
+              };
             } else {
               throw new Error(`key "${v.key}" not found in box state`);
             }
@@ -857,8 +861,7 @@ export class AvmDebugSession extends DebugSession {
                 if (0 <= index && index < 256) {
                   rv = this.convertAvmValue(
                     scopeWithFrame,
-                    state.scratch.get(index) ||
-                      ({  type: 2 }),
+                    state.scratch.get(index) || { type: 2 },
                     index,
                   );
                 } else {
@@ -875,10 +878,10 @@ export class AvmDebugSession extends DebugSession {
             const keyHex = key.slice(2);
             const value = state.globalState.getHex(keyHex);
             if (value) {
-              const kv = ({ 
+              const kv = {
                 key: hexToBytes(keyHex),
                 value,
-              });
+              };
               rv = this.convertAvmKeyValue(scope, kv);
             } else {
               reply = `key "${key}" not found in global state`;
@@ -907,10 +910,10 @@ export class AvmDebugSession extends DebugSession {
                 const keyHex = key.slice(2);
                 const value = accountState.getHex(keyHex);
                 if (value) {
-                  const kv = ({ 
+                  const kv = {
                     key: hexToBytes(keyHex),
                     value,
-                  });
+                  };
                   rv = this.convertAvmKeyValue(scope, kv);
                 } else {
                   reply = `key "${key}" not found in local state for account "${scope.account}"`;
@@ -923,10 +926,10 @@ export class AvmDebugSession extends DebugSession {
             const keyHex = key.slice(2);
             const value = state.boxState.getHex(keyHex);
             if (value) {
-              const kv = ({ 
+              const kv = {
                 key: hexToBytes(keyHex),
                 value,
-              });
+              };
               rv = this.convertAvmKeyValue(scope, kv);
             } else {
               reply = `key "${key}" not found in box state`;
@@ -1190,8 +1193,7 @@ export class AvmDebugSession extends DebugSession {
     scope: AvmValueScope,
     avmKeyValue: AvmKeyValue,
   ): DebugProtocol.Variable {
-    const keyString =
-      '0x' + bytesToHex(avmKeyValue.key || new Uint8Array());
+    const keyString = '0x' + bytesToHex(avmKeyValue.key || new Uint8Array());
     const value = this.convertAvmValue(
       scope,
       avmKeyValue.value,
@@ -1212,8 +1214,7 @@ export class AvmDebugSession extends DebugSession {
       if (filter === 'indexed') {
         return [];
       }
-      const keyString =
-        '0x' + bytesToHex(avmKeyValue.key || new Uint8Array());
+      const keyString = '0x' + bytesToHex(avmKeyValue.key || new Uint8Array());
       const keyScope = new AppSpecificStateScope({
         scope: scope.scope,
         appID: scope.appID,
@@ -1228,7 +1229,7 @@ export class AvmDebugSession extends DebugSession {
       });
       const keyVariable = this.convertAvmValue(
         keyScope,
-        ({  type: 1, bytes: avmKeyValue.key }),
+        { type: 1, bytes: avmKeyValue.key },
         '',
         false,
       );
@@ -1271,10 +1272,10 @@ export class AvmDebugSession extends DebugSession {
     }
 
     if (scope.property === 'key') {
-      const avmKey = ({ 
+      const avmKey = {
         type: 1,
         bytes: avmKeyValue.key,
-      });
+      };
       return this.expandAvmValue(avmKey, filter);
     }
 
