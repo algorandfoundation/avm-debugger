@@ -5,7 +5,8 @@ import type {
   SimulationTransactionExecTrace,
   PendingTransactionResponse,
 } from '@algorandfoundation/algokit-utils/algod-client';
-import { encodeAddress, stringifyJson, parseJson, hash } from '@algorandfoundation/algokit-utils/common';
+import { encodeAddress, stringifyJson, parseJson } from '@algorandfoundation/algokit-utils/common';
+import { hash } from '@algorandfoundation/algokit-utils/crypto';
 import { AppState } from './appState';
 import {
   ByteArrayMap,
