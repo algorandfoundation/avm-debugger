@@ -1,10 +1,22 @@
-import * as algosdk from 'algosdk';
+import {
+  ProgramSourceMap,
+  encodeAddress,
+  base64ToBytes,
+  bytesToHex,
+  hexToBytes,
+  bytesToString,
+  parseJson,
+  stringifyJson,
+} from '@algorandfoundation/algokit-utils/common';
+import {
+  SimulateResponse,
+  decodeSimulateResponseFromJson,
+} from '@algorandfoundation/algokit-utils/algod-client';
+import { encodeSignedTransactionToJson } from '@algorandfoundation/algokit-utils/transact';
 import { FileAccessor } from './fileAccessor';
 
-/**
- * Attempt to decode the given data as UTF-8 and return the result if it is
- * valid UTF-8. Otherwise, return undefined.
- */
+export { encodeSignedTransactionToJson as displaySignedTxnJson };
+
 export function utf8Decode(data: Uint8Array): string | undefined {
   const decoder = new TextDecoder('utf-8', { fatal: true });
   try {
@@ -14,38 +26,35 @@ export function utf8Decode(data: Uint8Array): string | undefined {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
-// NOTE: Changes to 'address' or 'toUint' fields below must be propagated to other algokit repos using similar parsing logic
-// Such as: https://github.com/algorandfoundation/algokit-subscriber-ts/pull/102#discussion_r1888287708
-// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
-function parseAlgosdkV2SimulateResponse(obj: any): any {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseSimulateResponseFields(obj: any): any {
   if (obj === null || typeof obj !== 'object') return obj;
 
   const addressFields = new Set([
-    'snd', // Sender address
-    'close', // CloseRemainderTo address (payment tx)
-    'aclose', // AssetCloseTo address (asset transfer tx)
-    'rekey', // RekeyTo address
-    'rcv', // Receiver address (payment tx)
-    'arcv', // AssetReceiver address (asset transfer tx)
-    'fadd', // FreezeAccount address (asset freeze tx)
-    'asnd', // AssetSender address (asset transfer/clawback tx)
-    'm', // ManagerAddr (asset config)
-    'r', // ReserveAddr (asset config)
-    'f', // FreezeAddr (asset config)
-    'c', // ClawbackAddr (asset config)
+    'snd',
+    'close',
+    'aclose',
+    'rekey',
+    'rcv',
+    'arcv',
+    'fadd',
+    'asnd',
+    'm',
+    'r',
+    'f',
+    'c',
   ]);
 
   const toUintFields = new Set([
-    'gh', // GenesisHash - Hash of genesis block
-    'apaa', // AppArguments - Application call arguments
-    'apap', // ApprovalProgram - Logic for app approval program
-    'note', // Note field - Optional data up to 1000 bytes
-    'lx', // Lease field - For transaction mutual exclusion
-    'grp', // Group field - Transaction group identifier
-    'apsu', // ClearStateProgram - Logic for app clear state
-    'am', // MetaDataHash - Asset metadata hash (32 bytes)
-    'n', // Box name fields in apbx array
+    'gh',
+    'apaa',
+    'apap',
+    'note',
+    'lx',
+    'grp',
+    'apsu',
+    'am',
+    'n',
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -53,23 +62,23 @@ function parseAlgosdkV2SimulateResponse(obj: any): any {
     if (typeof value === 'string') {
       if (addressFields.has(key)) {
         try {
-          return algosdk.encodeAddress(algosdk.base64ToBytes(value));
+          return encodeAddress(base64ToBytes(value));
         } catch {
           return value;
         }
       }
       if (toUintFields.has(key)) {
-        return algosdk.base64ToBytes(value);
+        return base64ToBytes(value);
       }
     } else if (Array.isArray(value)) {
       if (toUintFields.has(key)) {
         return value.map((item) =>
-          typeof item === 'string' ? algosdk.base64ToBytes(item) : item,
+          typeof item === 'string' ? base64ToBytes(item) : item,
         );
       }
-      return value.map((item) => parseAlgosdkV2SimulateResponse(item));
+      return value.map((item) => parseSimulateResponseFields(item));
     } else if (typeof value === 'object' && value !== null) {
-      return parseAlgosdkV2SimulateResponse(value);
+      return parseSimulateResponseFields(value);
     }
     return value;
   };
@@ -79,64 +88,26 @@ function parseAlgosdkV2SimulateResponse(obj: any): any {
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function objectToMapRecursive(obj: any): any {
-  if (obj === null || typeof obj !== 'object' || obj instanceof Uint8Array) {
-    return obj;
-  }
-
-  if (Array.isArray(obj)) {
-    return obj.map(objectToMapRecursive);
-  }
-
-  return new Map(
-    Object.entries(obj).map(([key, value]) => {
-      let processedValue = value;
-
-      // Convert string to bigint if key is "uint" and value is a numeric string
-      if (key === 'uint' && typeof value === 'string' && /^\d+$/.test(value)) {
-        processedValue = BigInt(value);
-      } else {
-        processedValue = objectToMapRecursive(value);
-      }
-
-      return [key, processedValue];
-    }),
-  );
-}
-
-function tryParseAlgosdkV2SimulateResponse(
+function tryParseSimulateResponse(
   rawSimulateTrace: Uint8Array,
-): algosdk.modelsv2.SimulateResponse {
-  const algosdkV2Response = parseAlgosdkV2SimulateResponse(
-    algosdk.parseJSON(algosdk.bytesToString(rawSimulateTrace), {
-      intDecoding: algosdk.IntDecoding.MIXED,
-    }),
-  );
+): SimulateResponse {
+  const parsed = parseJson(bytesToString(rawSimulateTrace));
+  const processed = parseSimulateResponseFields(parsed);
 
-  if (algosdkV2Response.version !== 2) {
+  if (processed.version !== 2) {
     throw new Error(
-      `Unsupported simulate response version: ${algosdkV2Response.version}`,
+      `Unsupported simulate response version: ${processed.version}`,
     );
   }
 
-  return algosdk.modelsv2.SimulateResponse.fromEncodingData(
-    objectToMapRecursive(algosdkV2Response),
-  );
+  return decodeSimulateResponseFromJson(processed);
 }
 
-/**
- * Normalize the given file path.
- *
- * On Windows, this will replace all forward slashes with backslashes and convert
- * the path to lowercase, since Windows paths are case-insensitive.
- */
 export function normalizePathAndCasing(
   fileAccessor: FileAccessor,
   filePath: string,
 ) {
   if (fileAccessor.isWindows) {
-    // Normalize path to lowercase on Windows, since it is case-insensitive
     return filePath.replace(/\//g, '\\').toLowerCase();
   } else {
     return filePath.replace(/\\/g, '/');
@@ -184,7 +155,7 @@ export class ByteArrayMap<T> {
   }
 
   public set(key: Uint8Array, value: T): void {
-    this.map.set(algosdk.bytesToHex(key), value);
+    this.map.set(bytesToHex(key), value);
   }
 
   public setHex(key: string, value: T): void {
@@ -192,7 +163,7 @@ export class ByteArrayMap<T> {
   }
 
   public get(key: Uint8Array): T | undefined {
-    return this.map.get(algosdk.bytesToHex(key));
+    return this.map.get(bytesToHex(key));
   }
 
   public getHex(key: string): T | undefined {
@@ -204,11 +175,11 @@ export class ByteArrayMap<T> {
   }
 
   public has(key: Uint8Array): boolean {
-    return this.map.has(algosdk.bytesToHex(key));
+    return this.map.has(bytesToHex(key));
   }
 
   public delete(key: Uint8Array): boolean {
-    return this.map.delete(algosdk.bytesToHex(key));
+    return this.map.delete(bytesToHex(key));
   }
 
   public deleteHex(key: string): boolean {
@@ -221,7 +192,7 @@ export class ByteArrayMap<T> {
 
   public *entries(): IterableIterator<[Uint8Array, T]> {
     for (const [key, value] of this.map.entries()) {
-      yield [algosdk.hexToBytes(key), value];
+      yield [hexToBytes(key), value];
     }
   }
 
@@ -271,7 +242,7 @@ export class ProgramSourceDescriptor {
     public readonly fileAccessor: FileAccessor,
     public readonly sourcemapFileLocation: string,
     public readonly json: ISourceMap,
-    public readonly sourcemap: algosdk.ProgramSourceMap,
+    public readonly sourcemap: ProgramSourceMap,
     public readonly hash: Uint8Array,
   ) {}
 
@@ -305,14 +276,14 @@ export class ProgramSourceDescriptor {
       'Could not read source map file',
     );
     const json = JSON.parse(new TextDecoder().decode(rawSourcemap));
-    const sourcemap = new algosdk.ProgramSourceMap(json);
+    const sourcemap = new ProgramSourceMap(json);
 
     return new ProgramSourceDescriptor(
       fileAccessor,
       sourcemapFileLocation,
       json,
       sourcemap,
-      algosdk.base64ToBytes(data.hash),
+      base64ToBytes(data.hash),
     );
   }
 }
@@ -378,7 +349,7 @@ export class ProgramSourceDescriptorRegistry {
 
 export class AvmDebuggingAssets {
   constructor(
-    public readonly simulateResponse: algosdk.modelsv2.SimulateResponse,
+    public readonly simulateResponse: SimulateResponse,
     public readonly programSourceDescriptorRegistry: ProgramSourceDescriptorRegistry,
   ) {}
 
@@ -392,15 +363,15 @@ export class AvmDebuggingAssets {
       fileAccessor.readFile(simulateTraceFilePath),
       'Could not read simulate trace file',
     );
-    let simulateResponse: algosdk.modelsv2.SimulateResponse;
+    let simulateResponse: SimulateResponse;
     try {
       try {
-        simulateResponse = algosdk.decodeJSON(
-          algosdk.bytesToString(rawSimulateTrace),
-          algosdk.modelsv2.SimulateResponse,
+        const parsed = parseJson(bytesToString(rawSimulateTrace));
+        simulateResponse = decodeSimulateResponseFromJson(
+          parsed as Record<string, unknown>,
         );
-      } catch (e) {
-        simulateResponse = tryParseAlgosdkV2SimulateResponse(rawSimulateTrace);
+      } catch {
+        simulateResponse = tryParseSimulateResponse(rawSimulateTrace);
       }
       if (simulateResponse.version !== 2) {
         throw new Error(
@@ -411,7 +382,7 @@ export class AvmDebuggingAssets {
         throw new Error(
           `Simulate response does not contain trace data. execTraceConfig=${
             simulateResponse.execTraceConfig
-              ? algosdk.encodeJSON(simulateResponse.execTraceConfig)
+              ? stringifyJson(simulateResponse.execTraceConfig)
               : simulateResponse.execTraceConfig
           }`,
         );

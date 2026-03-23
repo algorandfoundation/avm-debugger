@@ -1,4 +1,16 @@
-import * as algosdk from 'algosdk';
+import type {
+  AvmValue,
+  SimulateResponse,
+  SimulationOpcodeTraceUnit,
+  SimulationTransactionExecTrace,
+  PendingTransactionResponse,
+} from '@algorandfoundation/algokit-utils/algod-client';
+import {
+  encodeAddress,
+  stringifyJson,
+  parseJson,
+} from '@algorandfoundation/algokit-utils/common';
+import { sha512_256 } from '@noble/hashes/sha2.js';
 import { AppState } from './appState';
 import {
   ByteArrayMap,
@@ -6,9 +18,18 @@ import {
   ProgramSourceDescriptor,
   ProgramSourceDescriptorRegistry,
   isPuyaSourceMap,
+  displaySignedTxnJson,
 } from './utils';
 import { ProgramReplay } from './programReplay';
-import { AvmValue } from 'algosdk/dist/types/client/v2/algod/models/types';
+
+function computeLogicSigAddress(programBytes: Uint8Array): string {
+  const prefix = new TextEncoder().encode('Program');
+  const toHash = new Uint8Array(prefix.length + programBytes.length);
+  toHash.set(prefix);
+  toHash.set(programBytes, prefix.length);
+  const hashed = sha512_256(toHash);
+  return encodeAddress(hashed);
+}
 
 export enum SteppingResultType {
   /* eslint-disable @typescript-eslint/naming-convention */
@@ -42,7 +63,7 @@ export class ExceptionInfo {
 }
 
 export class TraceReplayEngine {
-  public simulateResponse: algosdk.modelsv2.SimulateResponse | undefined;
+  public simulateResponse: SimulateResponse | undefined;
 
   public programHashToSource: ByteArrayMap<
     ProgramSourceDescriptor | undefined
@@ -94,12 +115,9 @@ export class TraceReplayEngine {
     this.setStartingStack(simulateResponse);
   }
 
-  private setStartingStack(
-    simulateResponse: algosdk.modelsv2.SimulateResponse,
-  ) {
+  private setStartingStack(simulateResponse: SimulateResponse) {
     this.stack = [new TopLevelTransactionGroupsFrame(this, simulateResponse)];
     if (simulateResponse.txnGroups.length === 1) {
-      // If only a single group, get rid of the top-level frame
       this.forward();
       this.stack.shift();
     }
@@ -115,7 +133,7 @@ export class TraceReplayEngine {
   }
 
   private setupTxnTrace(
-    simulateResponse: algosdk.modelsv2.SimulateResponse,
+    simulateResponse: SimulateResponse,
     programSourceDescriptorRegistry: ProgramSourceDescriptorRegistry,
     groupIndex: number,
     txnIndex: number,
@@ -125,7 +143,6 @@ export class TraceReplayEngine {
     const txn = simulateResponse.txnGroups[groupIndex].txnResults[txnIndex];
     const trace = txn.execTrace;
     if (!trace) {
-      // Probably not an app call txn
       return;
     }
     if (trace.logicSigTrace) {
@@ -144,8 +161,7 @@ export class TraceReplayEngine {
           programHash,
         );
 
-        const appID =
-          txnInfo.applicationIndex || txnInfo.txn.txn.applicationCall?.appIndex;
+        const appID = txnInfo.appId || txnInfo.txn.txn.appCall?.appId;
         if (typeof appID === 'undefined' || appID === BigInt(0)) {
           throw new Error(`No appID for txn at path ${path}`);
         }
@@ -222,13 +238,13 @@ export class TraceReplayEngine {
 
 function visitAppTrace(
   path: number[],
-  txnInfo: algosdk.modelsv2.PendingTransactionResponse,
-  trace: algosdk.modelsv2.SimulationTransactionExecTrace,
+  txnInfo: PendingTransactionResponse,
+  trace: SimulationTransactionExecTrace,
   visitor: (
     path: number[],
     programHash: Uint8Array,
-    txnInfo: algosdk.modelsv2.PendingTransactionResponse,
-    opcodes: algosdk.modelsv2.SimulationOpcodeTraceUnit[],
+    txnInfo: PendingTransactionResponse,
+    opcodes: SimulationOpcodeTraceUnit[],
   ) => void,
 ) {
   if (trace.approvalProgramTrace) {
@@ -279,19 +295,12 @@ export interface ProgramState {
 }
 
 export interface CallStackFrame {
-  /* Represents a function call within a program's call stack */
   readonly name: string;
   readonly source: FrameSource | undefined;
   readonly programState: ProgramState | undefined;
 }
 
 export interface TraceReplayFrame {
-  /* 
-    TraceReplayFrame represents a frame within the trace
-    a program frame may have multiple call frames within in it
-    one for each function in the call stack
-  */
-
   get callStack(): CallStackFrame[];
   forward(stack: TraceReplayFrame[]): ExceptionInfo | void;
   backward(stack: TraceReplayFrame[]): ExceptionInfo | void;
@@ -304,7 +313,7 @@ export class TopLevelTransactionGroupsFrame
   private txnGroupDone: boolean = false;
   constructor(
     private readonly engine: TraceReplayEngine,
-    private readonly response: algosdk.modelsv2.SimulateResponse,
+    private readonly response: SimulateResponse,
   ) {}
 
   public get callStack(): CallStackFrame[] {
@@ -322,31 +331,25 @@ export class TopLevelTransactionGroupsFrame
   public get source(): FrameSource {
     const individualGroups = this.response.txnGroups.map((group) =>
       group.txnResults.map((txnResult) =>
-        algosdk.parseJSON(algosdk.encodeJSON(txnResult.txnResult.txn), {
-          intDecoding: algosdk.IntDecoding.BIGINT,
-        }),
+        parseJson(displaySignedTxnJson(txnResult.txnResult.txn)),
       ),
     );
-    let lineOffset = 1; // For opening bracket
+    let lineOffset = 1;
     for (let i = 0; i < this.index; i++) {
       for (const txnResult of this.response.txnGroups[i].txnResults) {
         const displayedTxn = txnResult.txnResult.txn;
-        lineOffset += algosdk
-          .encodeJSON(displayedTxn, { space: 2 })
-          .split('\n').length;
+        lineOffset += displaySignedTxnJson(displayedTxn, 2).split('\n').length;
       }
-      lineOffset += 2; // For opening and closing brackets
+      lineOffset += 2;
     }
-    let lineCount = 2; // For opening and closing brackets
+    let lineCount = 2;
     for (const txnResult of this.response.txnGroups[this.index].txnResults) {
       const displayedTxn = txnResult.txnResult.txn;
-      lineCount += algosdk
-        .encodeJSON(displayedTxn, { space: 2 })
-        .split('\n').length;
+      lineCount += displaySignedTxnJson(displayedTxn, 2).split('\n').length;
     }
     return {
       name: `transaction-groups.json`,
-      content: algosdk.stringifyJSON(individualGroups, undefined, 2),
+      content: stringifyJson(individualGroups, undefined, 2),
       contentMimeType: 'application/json',
       line: lineOffset,
       endLine: lineOffset + lineCount,
@@ -368,10 +371,8 @@ export class TopLevelTransactionGroupsFrame
   }
 
   private frameForIndex(index: number): TransactionGroupStackFrame {
-    const txnInfos: algosdk.modelsv2.PendingTransactionResponse[] = [];
-    const txnTraces: Array<
-      algosdk.modelsv2.SimulationTransactionExecTrace | undefined
-    > = [];
+    const txnInfos: PendingTransactionResponse[] = [];
+    const txnTraces: Array<SimulationTransactionExecTrace | undefined> = [];
     for (const { txnResult, execTrace } of this.response.txnGroups[index]
       .txnResults) {
       txnInfos.push(txnResult);
@@ -446,9 +447,9 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
   constructor(
     private engine: TraceReplayEngine,
     private txnPath: number[],
-    private readonly txnInfos: algosdk.modelsv2.PendingTransactionResponse[],
+    private readonly txnInfos: PendingTransactionResponse[],
     private readonly txnTraces: Array<
-      algosdk.modelsv2.SimulationTransactionExecTrace | undefined
+      SimulationTransactionExecTrace | undefined
     >,
     private readonly failureInfo: TransactionFailureInfo | undefined,
   ) {
@@ -466,19 +467,15 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
     }
 
     const individualTxns = this.txnInfos.map((txnInfo) =>
-      algosdk.parseJSON(algosdk.encodeJSON(txnInfo.txn), {
-        intDecoding: algosdk.IntDecoding.BIGINT,
-      }),
+      parseJson(displaySignedTxnJson(txnInfo.txn)),
     );
-    this.sourceContent = algosdk.stringifyJSON(individualTxns, undefined, 2);
-    let lineOffset = 1; // For opening bracket
+    this.sourceContent = stringifyJson(individualTxns, undefined, 2);
+    let lineOffset = 1;
     for (let i = 0; i < this.txnInfos.length; i++) {
       const txnInfo = this.txnInfos[i];
       const txnTrace = this.txnTraces[i];
       const displayedTxn = txnInfo.txn;
-      const displayTxnLines = algosdk
-        .encodeJSON(displayedTxn, { space: 2 })
-        .split('\n');
+      const displayTxnLines = displaySignedTxnJson(displayedTxn, 2).split('\n');
       const sourceLocation: TransactionSourceLocation = {
         line: lineOffset,
         lineEnd: lineOffset + displayTxnLines.length,
@@ -497,7 +494,6 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
             }
           }
           sourceLocation.lsigLocation = {
-            // Default to lineOffset + 1 if no lsig is present
             line: lsigLine ?? lineOffset + 1,
           };
         }
@@ -508,18 +504,13 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
             const line = displayTxnLines[i];
             if (line.match(/^\s*"apid":\s*\d+,\s*$/)) {
               appIdLine = lineOffset + i;
-              // Break here, this is the ideal result
               break;
             }
             if (line.match(/^\s*"apap":\s*"[A-Za-z0-9+/=]*",\s*$/)) {
-              // Show approval program if no app ID is present (during create)
               approvalProgramLine = lineOffset + i;
-              // It's possible that this txn can have an approval program and an appID
-              // (i.e. during an update), so don't break yet.
             }
           }
           sourceLocation.appLocation = {
-            // Default to lineOffset + 1 if no appID or approval program is present
             line: appIdLine ?? approvalProgramLine ?? lineOffset + 1,
           };
         }
@@ -585,10 +576,8 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
             currentTxnTrace.approvalProgramTrace ||
             currentTxnTrace.clearStateProgramTrace)
         ) {
-          // Fail in the trace
           childFailureInfo = this.failureInfo;
         } else {
-          // Fail right now
           this.onException = true;
           return new ExceptionInfo(this.failureInfo.message);
         }
@@ -610,8 +599,6 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
         currentTxnTrace.logicSigTrace!,
         currentTxnTrace,
         currentTxnInfo,
-        // Only forward childFailureInfo if the LogicSig is the one that failed. The LogicSig could
-        // not have failed if we have an app trace.
         this.appStatus === ProgramStatus.NOT_STARTED
           ? undefined
           : childFailureInfo,
@@ -691,8 +678,6 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
         }
         if (this.appStatus === ProgramStatus.STARTING) {
           this.appStatus = ProgramStatus.NOT_STARTED;
-          // Need to unwind the forward call that is implicit when the app program frame
-          // is popped
           return this.backward(stack);
         }
       }
@@ -721,7 +706,6 @@ export class TransactionGroupStackFrame implements TraceReplayFrame {
       previousTrace?.clearStateProgramHash ||
       previousTrace?.logicSigHash
     ) {
-      // Need to step back on the app or lsig status
       return this.backward(stack);
     }
   }
@@ -742,9 +726,9 @@ export class ProgramStackFrame implements TraceReplayFrame {
     private readonly txnPath: number[],
     private readonly programType: 'logic sig' | 'approval' | 'clear state',
     programHash: Uint8Array,
-    private readonly programTrace: algosdk.modelsv2.SimulationOpcodeTraceUnit[],
-    private readonly trace: algosdk.modelsv2.SimulationTransactionExecTrace,
-    private readonly txnInfo: algosdk.modelsv2.PendingTransactionResponse,
+    private readonly programTrace: SimulationOpcodeTraceUnit[],
+    private readonly trace: SimulationTransactionExecTrace,
+    private readonly txnInfo: PendingTransactionResponse,
     private readonly failureInfo: TransactionFailureInfo | undefined,
   ) {
     const appID = this.currentAppID();
@@ -757,8 +741,7 @@ export class ProgramStackFrame implements TraceReplayFrame {
       typeof this.txnInfo.txn.lsig !== 'undefined'
     ) {
       const lsigBytes = this.txnInfo.txn.lsig.logic;
-      const lsigAccount = new algosdk.LogicSigAccount(lsigBytes);
-      this.logicSigAddress = lsigAccount.address().toString();
+      this.logicSigAddress = computeLogicSigAddress(lsigBytes);
     }
 
     const sourceMapPath = this.engine.programHashToSource.get(programHash);
@@ -777,13 +760,11 @@ export class ProgramStackFrame implements TraceReplayFrame {
     if (this.programType === 'logic sig') {
       return undefined;
     }
-    if (this.txnInfo.txn.txn.applicationCall?.appIndex) {
-      // Ignore 0 and undefined
-      return this.txnInfo.txn.txn.applicationCall.appIndex;
+    if (this.txnInfo.txn.txn.appCall?.appId) {
+      return this.txnInfo.txn.txn.appCall.appId;
     }
-    if (this.txnInfo.applicationIndex) {
-      // Ignore 0 and undefined
-      return this.txnInfo.applicationIndex;
+    if (this.txnInfo.appId) {
+      return this.txnInfo.appId;
     }
     return undefined;
   }
@@ -831,10 +812,8 @@ export class ProgramStackFrame implements TraceReplayFrame {
         const currentUnit = this.programTrace[this.index];
         const spawnedInners = currentUnit.spawnedInners!;
         const spawnedInnerIndexes = spawnedInners.map((i) => Number(i));
-        const innerGroupInfo: algosdk.modelsv2.PendingTransactionResponse[] =
-          [];
-        const innerTraces: algosdk.modelsv2.SimulationTransactionExecTrace[] =
-          [];
+        const innerGroupInfo: PendingTransactionResponse[] = [];
+        const innerTraces: SimulationTransactionExecTrace[] = [];
         for (const innerIndex of spawnedInnerIndexes) {
           const innerTxnInfo = this.txnInfo.innerTxns![innerIndex];
           const innerTrace = this.trace.innerTrace![innerIndex];
@@ -863,7 +842,6 @@ export class ProgramStackFrame implements TraceReplayFrame {
         return;
       }
       this.programReplay.forward();
-      // loop until location has advanced
       again =
         this.isPuyaFrame &&
         !locationHasAdvanced(lastLocation, this.programReplay.nextPcSource);
@@ -877,19 +855,16 @@ export class ProgramStackFrame implements TraceReplayFrame {
           this.programType === 'clear state' &&
           this.trace.clearStateRollback
         ) {
-          // If there's a rollback, reset the app state to the initial state
           this.engine.currentAppState.set(
             this.currentAppID()!,
             this.initialAppState!.clone(),
           );
-          // Don't return the clear state error here, failureInfo takes precedence
         }
 
         if (
           this.failureInfo &&
           pathsEqual(this.txnPath.slice(1), this.failureInfo.path)
         ) {
-          // If there's an error, show it at the end of execution
           this.blockingException = new ExceptionInfo(this.failureInfo.message);
           return this.blockingException;
         }
@@ -898,11 +873,9 @@ export class ProgramStackFrame implements TraceReplayFrame {
           this.programType === 'clear state' &&
           this.trace.clearStateRollback
         ) {
-          // Show error message for clear state rollback. This is NOT a blocking error.
           if (typeof this.trace.clearStateRollbackError !== 'undefined') {
             return new ExceptionInfo(this.trace.clearStateRollbackError);
           }
-          // If no specific error message, show a generic one (this is what happens during rejection)
           return new ExceptionInfo('Clear state program did not succeed');
         }
       }
@@ -914,7 +887,6 @@ export class ProgramStackFrame implements TraceReplayFrame {
       this.blockingException = undefined;
     }
     if (this.handledInnerTxns) {
-      // We can roll this back without any other effects
       this.handledInnerTxns = false;
       return;
     }
@@ -922,7 +894,6 @@ export class ProgramStackFrame implements TraceReplayFrame {
       stack.pop();
       return;
     }
-    // reset and then advance until the current index is the lastIndex
     const stopAt = this.lastIndex;
     this.reset();
     if (stopAt !== undefined) {
@@ -958,9 +929,6 @@ function pathsEqual(path1: number[], path2: number[]): boolean {
   return true;
 }
 
-/**
- * Determines if the given path starts with the given prefix.
- */
 function pathStartWith(path: number[], prefix: number[]): boolean {
   if (path.length < prefix.length) {
     return false;
@@ -977,15 +945,12 @@ function locationHasAdvanced(
   from: FrameSource | undefined,
   to: FrameSource | undefined,
 ): boolean {
-  // two unknown locations have not advanced
   if (from === undefined && to === undefined) {
     return false;
   }
-  // unknown -> known has advanced
   if (from === undefined && to !== undefined) {
     return true;
   }
-  // known -> unknown has not advanced
   if (from !== undefined && to === undefined) {
     return false;
   }

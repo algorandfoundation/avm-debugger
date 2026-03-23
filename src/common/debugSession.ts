@@ -16,7 +16,17 @@ import {
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { AvmRuntime, IRuntimeBreakpoint } from './runtime';
 import { Subject } from 'await-notify';
-import * as algosdk from 'algosdk';
+import type {
+  AvmValue,
+  AvmKeyValue,
+} from '@algorandfoundation/algokit-utils/algod-client';
+import {
+  bytesToHex,
+  bytesToBase64,
+  encodeAddress,
+  hexToBytes,
+  decodeAddress,
+} from '@algorandfoundation/algokit-utils/common';
 import { FileAccessor } from './fileAccessor';
 import {
   AvmDebuggingAssets,
@@ -541,12 +551,9 @@ export class AvmDebugSession extends DebugSession {
             );
           }
         } else if (v.specificState === 'scratch') {
-          const expandedScratch: algosdk.modelsv2.AvmValue[] = [];
+          const expandedScratch: AvmValue[] = [];
           for (let i = 0; i < 256; i++) {
-            expandedScratch.push(
-              programState.scratch.get(i) ||
-                new algosdk.modelsv2.AvmValue({ type: 2 }),
-            );
+            expandedScratch.push(programState.scratch.get(i) || { type: 2 });
           }
           if (args.filter !== 'named') {
             variables = expandedScratch.map((value, index) =>
@@ -652,15 +659,13 @@ export class AvmDebugSession extends DebugSession {
           v.scope instanceof PuyaScope
         ) {
           const state = this.getProgramState(v.scope.frameIndex);
-          let toExpand: algosdk.modelsv2.AvmValue | undefined;
+          let toExpand: AvmValue | undefined;
 
           if (v.scope instanceof ProgramStateScope) {
             if (v.scope.specificState === 'stack') {
               toExpand = state.stack[v.key as number];
             } else if (v.scope.specificState === 'scratch') {
-              toExpand =
-                state.scratch.get(v.key as number) ||
-                new algosdk.modelsv2.AvmValue({ type: 2 });
+              toExpand = state.scratch.get(v.key as number) || { type: 2 };
             }
           } else if (v.scope instanceof PuyaScope) {
             const variable = state.variables.find(([name]) => name === v.key);
@@ -677,16 +682,16 @@ export class AvmDebugSession extends DebugSession {
           typeof v.key === 'string' &&
           v.key.startsWith('0x')
         ) {
-          let toExpand: algosdk.modelsv2.AvmKeyValue;
+          let toExpand: AvmKeyValue;
           const state = this._runtime.getAppState(v.scope.appID);
           const keyHex = v.key.slice(2);
           if (v.scope.scope === 'global') {
             const value = state.globalState.getHex(keyHex);
             if (value) {
-              toExpand = new algosdk.modelsv2.AvmKeyValue({
-                key: algosdk.hexToBytes(keyHex),
+              toExpand = {
+                key: hexToBytes(keyHex),
                 value,
-              });
+              };
             } else {
               throw new Error(`key "${v.key}" not found in global state`);
             }
@@ -706,18 +711,18 @@ export class AvmDebugSession extends DebugSession {
                   `key "${v.key}" not found in local state for account "${v.scope.account}"`,
                 );
               }
-              toExpand = new algosdk.modelsv2.AvmKeyValue({
-                key: algosdk.hexToBytes(keyHex),
+              toExpand = {
+                key: hexToBytes(keyHex),
                 value,
-              });
+              };
             }
           } else if (v.scope.scope === 'box') {
             const value = state.boxState.getHex(keyHex);
             if (value) {
-              toExpand = new algosdk.modelsv2.AvmKeyValue({
-                key: algosdk.hexToBytes(keyHex),
+              toExpand = {
+                key: hexToBytes(keyHex),
                 value,
-              });
+              };
             } else {
               throw new Error(`key "${v.key}" not found in box state`);
             }
@@ -856,8 +861,7 @@ export class AvmDebugSession extends DebugSession {
                 if (0 <= index && index < 256) {
                   rv = this.convertAvmValue(
                     scopeWithFrame,
-                    state.scratch.get(index) ||
-                      new algosdk.modelsv2.AvmValue({ type: 2 }),
+                    state.scratch.get(index) || { type: 2 },
                     index,
                   );
                 } else {
@@ -874,10 +878,10 @@ export class AvmDebugSession extends DebugSession {
             const keyHex = key.slice(2);
             const value = state.globalState.getHex(keyHex);
             if (value) {
-              const kv = new algosdk.modelsv2.AvmKeyValue({
-                key: algosdk.hexToBytes(keyHex),
+              const kv = {
+                key: hexToBytes(keyHex),
                 value,
-              });
+              };
               rv = this.convertAvmKeyValue(scope, kv);
             } else {
               reply = `key "${key}" not found in global state`;
@@ -906,10 +910,10 @@ export class AvmDebugSession extends DebugSession {
                 const keyHex = key.slice(2);
                 const value = accountState.getHex(keyHex);
                 if (value) {
-                  const kv = new algosdk.modelsv2.AvmKeyValue({
-                    key: algosdk.hexToBytes(keyHex),
+                  const kv = {
+                    key: hexToBytes(keyHex),
                     value,
-                  });
+                  };
                   rv = this.convertAvmKeyValue(scope, kv);
                 } else {
                   reply = `key "${key}" not found in local state for account "${scope.account}"`;
@@ -922,10 +926,10 @@ export class AvmDebugSession extends DebugSession {
             const keyHex = key.slice(2);
             const value = state.boxState.getHex(keyHex);
             if (value) {
-              const kv = new algosdk.modelsv2.AvmKeyValue({
-                key: algosdk.hexToBytes(keyHex),
+              const kv = {
+                key: hexToBytes(keyHex),
                 value,
-              });
+              };
               rv = this.convertAvmKeyValue(scope, kv);
             } else {
               reply = `key "${key}" not found in box state`;
@@ -1064,7 +1068,7 @@ export class AvmDebugSession extends DebugSession {
 
   private convertAvmValue(
     scope: AvmValueScope | PuyaScope,
-    avmValue: algosdk.modelsv2.AvmValue,
+    avmValue: AvmValue,
     key: number | string,
     overrideVariableReference?: boolean,
   ): DebugProtocol.Variable {
@@ -1118,7 +1122,7 @@ export class AvmDebugSession extends DebugSession {
   }
 
   private expandAvmValue(
-    avmValue: algosdk.modelsv2.AvmValue,
+    avmValue: AvmValue,
     filter?: DebugProtocol.VariablesArguments['filter'],
   ): DebugProtocol.Variable[] {
     // uint64 has no expanded variables
@@ -1133,14 +1137,14 @@ export class AvmDebugSession extends DebugSession {
       values.push({
         name: 'hex',
         type: 'string',
-        value: algosdk.bytesToHex(bytes),
+        value: bytesToHex(bytes),
         variablesReference: 0,
       });
 
       values.push({
         name: 'base64',
         type: 'string',
-        value: algosdk.bytesToBase64(bytes),
+        value: bytesToBase64(bytes),
         variablesReference: 0,
       });
 
@@ -1158,7 +1162,7 @@ export class AvmDebugSession extends DebugSession {
         values.push({
           name: 'address',
           type: 'string',
-          value: algosdk.encodeAddress(bytes),
+          value: encodeAddress(bytes),
           variablesReference: 0,
         });
       }
@@ -1187,10 +1191,9 @@ export class AvmDebugSession extends DebugSession {
 
   private convertAvmKeyValue(
     scope: AvmValueScope,
-    avmKeyValue: algosdk.modelsv2.AvmKeyValue,
+    avmKeyValue: AvmKeyValue,
   ): DebugProtocol.Variable {
-    const keyString =
-      '0x' + algosdk.bytesToHex(avmKeyValue.key || new Uint8Array());
+    const keyString = '0x' + bytesToHex(avmKeyValue.key || new Uint8Array());
     const value = this.convertAvmValue(
       scope,
       avmKeyValue.value,
@@ -1204,15 +1207,14 @@ export class AvmDebugSession extends DebugSession {
 
   private expandAvmKeyValue(
     scope: AppSpecificStateScope,
-    avmKeyValue: algosdk.modelsv2.AvmKeyValue,
+    avmKeyValue: AvmKeyValue,
     filter?: DebugProtocol.VariablesArguments['filter'],
   ): DebugProtocol.Variable[] {
     if (typeof scope.property === 'undefined') {
       if (filter === 'indexed') {
         return [];
       }
-      const keyString =
-        '0x' + algosdk.bytesToHex(avmKeyValue.key || new Uint8Array());
+      const keyString = '0x' + bytesToHex(avmKeyValue.key || new Uint8Array());
       const keyScope = new AppSpecificStateScope({
         scope: scope.scope,
         appID: scope.appID,
@@ -1227,7 +1229,7 @@ export class AvmDebugSession extends DebugSession {
       });
       const keyVariable = this.convertAvmValue(
         keyScope,
-        new algosdk.modelsv2.AvmValue({ type: 1, bytes: avmKeyValue.key }),
+        { type: 1, bytes: avmKeyValue.key },
         '',
         false,
       );
@@ -1270,21 +1272,21 @@ export class AvmDebugSession extends DebugSession {
     }
 
     if (scope.property === 'key') {
-      const avmKey = new algosdk.modelsv2.AvmValue({
+      const avmKey = {
         type: 1,
         bytes: avmKeyValue.key,
-      });
+      };
       return this.expandAvmValue(avmKey, filter);
     }
 
     return this.expandAvmValue(avmKeyValue.value, filter);
   }
 
-  private avmValueToString(avmValue: algosdk.modelsv2.AvmValue): string {
+  private avmValueToString(avmValue: AvmValue): string {
     if (avmValue.type === 1) {
       // byte array
       const bytes = avmValue.bytes || new Uint8Array();
-      return '0x' + algosdk.bytesToHex(bytes);
+      return '0x' + bytesToHex(bytes);
     }
     // uint64
     const uint = avmValue.uint || 0;
@@ -1436,7 +1438,7 @@ function evaluateNameToScope(name: string): [AvmValueScope, number | string] {
       throw new Error(`Unexpected app property: ${property}`);
     }
     try {
-      algosdk.decodeAddress(appLocalMatches[2]); // ensure valid address
+      decodeAddress(appLocalMatches[2]); // ensure valid address
     } catch {
       throw new Error(`Invalid address: ${appLocalMatches[2]}:`);
     }

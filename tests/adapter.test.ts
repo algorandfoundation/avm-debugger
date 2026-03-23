@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as path from 'path';
-import * as algosdk from 'algosdk';
+import { decodeAddress } from '@algorandfoundation/algokit-utils/common';
 import { DebugProtocol } from '@vscode/debugprotocol';
 import { ByteArrayMap, normalizePathAndCasing } from '../src/common/utils';
 import { nodeFileAccessor } from '../src/node';
@@ -1502,7 +1502,7 @@ describe('Debug Adapter Tests', () => {
       await assertVariables(client, {
         pc: 69,
         stack: [
-          algosdk.decodeAddress(
+          decodeAddress(
             'YGOSQB6R5IVQDJHJUHTIZAJNWNIT7VLMWHXFWY2H5HMWPK7QOPXHELNPJ4',
           ).publicKey,
           Buffer.from('local-int-key'),

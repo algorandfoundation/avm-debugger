@@ -1,7 +1,8 @@
-import {
+import type {
   AvmValue,
   SimulationOpcodeTraceUnit,
-} from 'algosdk/dist/types/client/v2/algod/models/types';
+} from '@algorandfoundation/algokit-utils/algod-client';
+import { ProgramSourceMap } from '@algorandfoundation/algokit-utils/common';
 import { FrameSource, CallStackFrame } from './traceReplayEngine';
 import {
   ByteArrayMap,
@@ -9,7 +10,6 @@ import {
   PCEvent,
   ProgramSourceDescriptor,
 } from './utils';
-import algosdk from 'algosdk';
 import { AppState } from './appState';
 
 const HIDE_VERSION = true;
@@ -44,7 +44,6 @@ class MutableCallStack implements CallStackFrame {
 
   public set paramVariables(value: string[]) {
     this._paramVariables = value;
-    // params are always defined
     this.setDefinedVariables(value);
   }
 
@@ -135,8 +134,6 @@ export class ProgramReplay {
     if (isPuyaSourceMap(sourceInfo?.json)) {
       this.sourceInfo = checkTraceMatchesSourceInfo(programTrace, sourceInfo);
     } else {
-      // If value is undefined, we still set it given that this can signify that user
-      // wants to skip debugging for this particular program
       this.sourceInfo = sourceInfo;
     }
 
@@ -232,7 +229,7 @@ export class ProgramReplay {
     this._callStack[this._callStack.length - 1].source = this.nextPcSource;
   }
 
-  private processUnit(unit: algosdk.modelsv2.SimulationOpcodeTraceUnit) {
+  private processUnit(unit: SimulationOpcodeTraceUnit) {
     if (unit.stateChanges && unit.stateChanges.length !== 0) {
       const appID = this.appId;
       if (typeof appID === 'undefined') {
@@ -258,7 +255,7 @@ export class ProgramReplay {
               const accountAddress = stateChange.account!.toString();
               let accountState = state.localState.get(accountAddress);
               if (!accountState) {
-                accountState = new ByteArrayMap<algosdk.modelsv2.AvmValue>();
+                accountState = new ByteArrayMap<AvmValue>();
                 state.localState.set(accountAddress, accountState);
               }
               accountState.set(stateChange.key, stateChange.newValue!);
@@ -310,7 +307,6 @@ export class ProgramReplay {
       }
       const newValue = scratchWrite.newValue;
       if (newValue.type === 2 && !newValue.uint) {
-        // When setting to 0, delete the entry, since 0 is the default.
         this.scratch.delete(slot);
       } else {
         this.scratch.set(slot, newValue);
@@ -371,13 +367,13 @@ function checkTraceMatchesSourceInfo(
   };
   const sourcemap = {
     ...sourceInfo.sourcemap,
-    getLocationForPc: (pc) => {
+    getLocationForPc: (pc: number) => {
       if (pc < pcOffset) {
         return undefined;
       }
       return sourceInfo?.sourcemap.getLocationForPc(pc - pcOffset);
     },
-  } as unknown as algosdk.ProgramSourceMap;
+  } as unknown as ProgramSourceMap;
 
   return new ProgramSourceDescriptor(
     sourceInfo.fileAccessor,

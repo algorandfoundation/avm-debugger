@@ -19,7 +19,8 @@
     "inlineSourceMap": false,
     "preserveConstEnums": true,
     "strictNullChecks": true,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    "skipLibCheck": true
   },
   "include": ["src/**/*"],
   "exclude": ["sampleWorkspace/**/*"]
